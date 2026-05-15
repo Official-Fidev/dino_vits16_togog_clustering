@@ -1,0 +1,27 @@
+# Environment
+dino-env/
+venv/
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Data (Generated/Large Files)
+data/processed/
+data/raw/
+features/
+embeddings/
+clusters/
+plots/
+
+# Logs & Results (Kecuali laporan final)
+results/
+!results/summary.md
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
