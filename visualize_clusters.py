@@ -49,9 +49,22 @@ def visualize_clusters(
     # 1. Plot scatter plot
     logging.info("Generating scatter plot...")
     plt.figure(figsize=(12, 10))
-    sns.scatterplot(data=df, x='x', y='y', hue='cluster', palette='viridis', legend='full', alpha=0.6)
-    plt.title(f"Cluster Visualization (UMAP 2D) - {len(df['cluster'].unique())} Clusters")
+    
+    # Separate outliers and regular clusters for better visualization
+    outliers = df[df['cluster'] == -1]
+    regular = df[df['cluster'] != -1]
+    
+    # Plot regular clusters
+    n_unique_clusters = len(regular['cluster'].unique())
+    sns.scatterplot(data=regular, x='x', y='y', hue='cluster', palette='tab10', legend='full', alpha=0.8, s=60)
+    
+    # Plot outliers in grey
+    if not outliers.empty:
+        plt.scatter(outliers['x'], outliers['y'], c='lightgrey', alpha=0.3, s=20, label='Outliers', zorder=0)
+    
+    plt.title(f"HDBSCAN Cluster Visualization - {n_unique_clusters} Clusters Found")
     plt.grid(True, linestyle='--', alpha=0.7)
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     
     plot_path = output_path / "cluster_scatter_plot.png"
     plt.savefig(plot_path, dpi=300, bbox_inches='tight')
@@ -66,33 +79,30 @@ def visualize_clusters(
     samples_dir.mkdir(parents=True)
     
     for cluster_id in sorted(df['cluster'].unique()):
-        cluster_samples = df[df['cluster'] == cluster_id].sample(min(n_samples_per_cluster, len(df[df['cluster'] == cluster_id])), random_state=42)
+        cluster_name = f"cluster_{cluster_id}" if cluster_id != -1 else "outliers"
+        cluster_data = df[df['cluster'] == cluster_id]
         
-        cluster_subdir = samples_dir / f"cluster_{cluster_id}"
+        sample_size = min(n_samples_per_cluster, len(cluster_data))
+        cluster_samples = cluster_data.sample(sample_size, random_state=42)
+        
+        cluster_subdir = samples_dir / cluster_name
         cluster_subdir.mkdir(parents=True)
         
         for i, row in cluster_samples.iterrows():
-            # Extract original image name from .pt filename
-            # Metadata filenames are like "Dewi Gangga19_side_08.pt"
             pt_filename = row['filename']
-            img_filename = pt_filename.replace('.pt', '.png') # Assuming original was .png
+            # Try different extensions
+            img_filename_base = pt_filename.replace('.pt', '')
             
-            src_path = Path(raw_images_dir) / img_filename
-            dst_path = cluster_subdir / img_filename
+            found = False
+            for ext in ['.png', '.jpg', '.jpeg']:
+                src_path = Path(raw_images_dir) / f"{img_filename_base}{ext}"
+                if src_path.exists():
+                    shutil.copy(src_path, cluster_subdir / f"{img_filename_base}{ext}")
+                    found = True
+                    break
             
-            if src_path.exists():
-                shutil.copy(src_path, dst_path)
-            else:
-                # Try to find the file if extension is different or nested
-                found = False
-                for ext in ['.png', '.jpg', '.jpeg']:
-                    alt_path = Path(raw_images_dir) / pt_filename.replace('.pt', ext)
-                    if alt_path.exists():
-                        shutil.copy(alt_path, dst_path)
-                        found = True
-                        break
-                if not found:
-                    logging.warning(f"Could not find source image for {pt_filename} in {raw_images_dir}")
+            if not found:
+                logging.warning(f"Could not find source image for {pt_filename} in {raw_images_dir}")
 
     logging.info(f"Samples saved to {samples_dir}")
 

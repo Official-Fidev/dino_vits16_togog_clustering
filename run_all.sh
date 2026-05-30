@@ -8,49 +8,57 @@ echo "      DINO ViT-S16 CLUSTERING PIPELINE RUNNER           "
 echo "=========================================================="
 
 # 1. Aktifkan Environment
-echo "[1/4] Activating environment..."
+echo "[1/7] Activating environment..."
 source dino-env/bin/activate
 
-# 2. Dimensionality Reduction
-echo "[2/4] Running Dimensionality Reduction (UMAP 2D)..."
+# 2. Preprocessing
+echo "[2/7] Running Preprocessing..."
+python3 preprocess.py
+
+# 3. Feature Extraction
+echo "[3/7] Running Feature Extraction..."
+python3 extract_features.py
+
+# 4. Dimensionality Reduction
+echo "[4/7] Running Dimensionality Reduction (UMAP 2D)..."
 python3 src/dim_reducer.py \
-  --features features/resized_256x256/features.npy \
-  --output-dir embeddings/resized_256x256 \
+  --features outputs/features/resized_256x256/features.npy \
+  --output-dir outputs/embeddings/resized_256x256 \
   --method umap \
   --n-components 2
 
-# 3. Clustering
-echo "[3/4] Running K-Means Clustering (K=8)..."
+# 5. Clustering (HDBSCAN)
+echo "[5/7] Running HDBSCAN Clustering (Automatic K)..."
 python3 src/clustering.py \
-  --embeddings embeddings/resized_256x256/embeddings_umap_2d.npy \
-  --output-dir clusters/resized_256x256 \
-  --method kmeans \
-  --n-clusters 8 \
+  --embeddings outputs/embeddings/resized_256x256/embeddings_umap_2d.npy \
+  --output-dir outputs/clusters/resized_256x256 \
+  --method hdbscan \
+  --min-cluster-size 5 \
   --save-plots
 
-# 4. Visualization
-echo "[4/5] Generating Visualizations and Samples..."
+# 6. Visualization
+echo "[6/7] Generating Visualizations and Samples..."
 python3 visualize_clusters.py \
-  --embeddings embeddings/resized_256x256/embeddings_umap_2d.npy \
-  --clusters clusters/resized_256x256/cluster_assignments_kmeans_8clusters.csv \
-  --metadata features/resized_256x256/metadata.json \
-  --output-dir plots/resized_256x256 \
+  --embeddings outputs/embeddings/resized_256x256/embeddings_umap_2d.npy \
+  --clusters outputs/clusters/resized_256x256/cluster_assignments_hdbscan.csv \
+  --metadata outputs/features/resized_256x256/metadata.json \
+  --output-dir outputs/plots/resized_256x256 \
   --raw-images data/raw/resized_datasets/resized_256x256 \
   --samples 15
 
-# 5. Cluster Comparison Grid
-echo "[5/5] Generating Cluster Comparison Grid..."
+# 7. Cluster Comparison Grid
+echo "[7/7] Generating Cluster Comparison Grid..."
 python3 visualize_comparison.py \
-  --clusters clusters/resized_256x256/cluster_assignments_kmeans_8clusters.csv \
-  --metadata features/resized_256x256/metadata.json \
+  --clusters outputs/clusters/resized_256x256/cluster_assignments_hdbscan.csv \
+  --metadata outputs/features/resized_256x256/metadata.json \
   --raw-images data/raw/resized_datasets/resized_256x256 \
-  --output-dir plots/resized_256x256 \
+  --output-dir outputs/plots/resized_256x256 \
   --samples 6
 
 echo "=========================================================="
 echo "PIPELINE COMPLETE!"
 echo "Check results in:"
-echo " - Scatter Plot & Samples: plots/resized_256x256/"
-echo " - Comparison Grid:       plots/resized_256x256/cluster_comparison_grid.png"
-echo " - Summary Report:         results/summary.md"
+echo " - Scatter Plot & Samples: outputs/plots/resized_256x256/"
+echo " - Comparison Grid:       outputs/plots/resized_256x256/cluster_comparison_grid.png"
+echo " - Summary Report:         outputs/results/summary.md"
 echo "=========================================================="

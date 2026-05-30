@@ -3,11 +3,14 @@ import pandas as pd
 import logging
 from pathlib import Path
 from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
+import hdbscan
 from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
 import argparse
 from typing import Dict, Any, Optional, List
 import matplotlib.pyplot as plt
 import seaborn as sns
+import json
+import os
 
 
 class ClusteringEngine:
@@ -18,7 +21,7 @@ class ClusteringEngine:
         Initialize clustering engine.
 
         Args:
-            method: Clustering method ('kmeans', 'dbscan', 'agglomerative')
+            method: Clustering method ('kmeans', 'dbscan', 'agglomerative', 'hdbscan')
             n_clusters: Number of clusters (for methods that require it)
             **kwargs: Additional parameters for the method
         """
@@ -30,19 +33,24 @@ class ClusteringEngine:
 
         # Initialize clusterer based on method
         if method == 'kmeans':
-            # Filter kwargs for KMeans
             kmeans_kwargs = {k: v for k, v in kwargs.items() if k in ['init', 'n_init', 'max_iter', 'tol']}
             self.clusterer = KMeans(
                 n_clusters=n_clusters,
                 random_state=42,
+                n_init='auto' if 'n_init' not in kmeans_kwargs else kmeans_kwargs['n_init'],
                 **kmeans_kwargs
             )
         elif method == 'dbscan':
-            # Filter kwargs for DBSCAN
             dbscan_kwargs = {k: v for k, v in kwargs.items() if k in ['eps', 'min_samples', 'metric', 'algorithm']}
             self.clusterer = DBSCAN(**dbscan_kwargs)
+        elif method == 'hdbscan':
+            hdb_kwargs = {k: v for k, v in kwargs.items() if k in ['min_cluster_size', 'min_samples', 'cluster_selection_method', 'metric']}
+            self.clusterer = hdbscan.HDBSCAN(
+                prediction_data=True,
+                gen_min_span_tree=True,
+                **hdb_kwargs
+            )
         elif method == 'agglomerative':
-            # Filter kwargs for AgglomerativeClustering
             agg_kwargs = {k: v for k, v in kwargs.items() if k in ['metric', 'linkage']}
             self.clusterer = AgglomerativeClustering(
                 n_clusters=n_clusters,
@@ -51,7 +59,7 @@ class ClusteringEngine:
         else:
             raise ValueError(f"Unknown clustering method: {method}")
 
-        logging.info(f"Initialized {method} clustering with n_clusters={n_clusters}")
+        logging.info(f"Initialized {method} clustering")
 
     def fit_predict(self, embeddings: np.ndarray) -> np.ndarray:
         """
@@ -67,13 +75,12 @@ class ClusteringEngine:
 
         self.labels_ = self.clusterer.fit_predict(embeddings)
 
-        # Handle noise points in DBSCAN (label = -1)
         n_clusters = len(set(self.labels_)) - (1 if -1 in self.labels_ else 0)
         n_noise = list(self.labels_).count(-1)
 
         logging.info(f"Found {n_clusters} clusters")
         if n_noise > 0:
-            logging.info(f"Found {n_noise} noise points")
+            logging.info(f"Found {n_noise} noise points (outliers)")
 
         return self.labels_
 
@@ -82,28 +89,32 @@ class ClusteringEngine:
         if self.labels_ is None:
             raise ValueError("Not clustered yet")
 
+        mask = self.labels_ != -1
+        n_clusters = len(set(self.labels_[mask]))
+        n_noise = int((self.labels_ == -1).sum())
+        
         stats = {
-            'n_clusters': len(set(self.labels_)) - (1 if -1 in self.labels_ else 0),
-            'n_noise': list(self.labels_).count(-1),
+            'n_clusters': n_clusters,
+            'n_noise': n_noise,
+            'outlier_ratio_pct': round(n_noise / len(self.labels_) * 100, 2),
             'cluster_sizes': pd.Series(self.labels_).value_counts().to_dict(),
             'method': self.method,
             'params': self.params
         }
 
         # Calculate evaluation metrics (excluding noise points)
-        if len(set(self.labels_)) > 1:
-            mask = self.labels_ != -1
-            if np.sum(mask) > 1:  # Need at least 2 points for metrics
+        if n_clusters >= 2:
+            if np.sum(mask) >= n_clusters + 1:
                 try:
-                    stats['silhouette_score'] = silhouette_score(
+                    stats['silhouette_score'] = round(float(silhouette_score(
                         embeddings[mask], self.labels_[mask]
-                    )
-                    stats['calinski_harabasz_score'] = calinski_harabasz_score(
+                    )), 4)
+                    stats['davies_bouldin_score'] = round(float(davies_bouldin_score(
                         embeddings[mask], self.labels_[mask]
-                    )
-                    stats['davies_bouldin_score'] = davies_bouldin_score(
-                        embeddings[mask], self.labels_[mask]
-                    )
+                    )), 4)
+                    
+                    if self.method == 'hdbscan':
+                        stats['dbcv_score'] = round(float(self.clusterer.relative_validity_), 4)
                 except Exception as e:
                     logging.warning(f"Could not calculate metrics: {e}")
 
@@ -114,48 +125,60 @@ class ClusteringEngine:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Create DataFrame
         df_data = {'cluster': labels}
         if filenames:
             df_data['filename'] = filenames
 
         df = pd.DataFrame(df_data)
-
-        # Save to CSV
         df.to_csv(output_path, index=False)
         logging.info(f"Cluster assignments saved to {output_path}")
 
         return df
 
-    def find_optimal_k(self, embeddings: np.ndarray, k_range: range = range(2, 11)) -> Dict[int, float]:
-        """
-        Find optimal number of clusters using elbow method.
 
-        Args:
-            embeddings: Input embeddings
-            k_range: Range of k values to try
+def plot_hdbscan_result(embeddings, labels, stats, output_dir):
+    """Plot HDBSCAN results with scatter and bar chart"""
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+    unique_labels = sorted(set(labels))
+    palette = plt.cm.tab10.colors
 
-        Returns:
-            Dictionary of k values and their inertias
-        """
-        inertias = {}
-        silhouette_scores = {}
+    # Scatter plot
+    for i, label in enumerate(unique_labels):
+        mask = labels == label
+        if label == -1:
+            ax1.scatter(embeddings[mask, 0], embeddings[mask, 1], 
+                       c='lightgray', s=15, alpha=0.4, label='Outlier', zorder=1)
+        else:
+            color = palette[label % len(palette)]
+            ax1.scatter(embeddings[mask, 0], embeddings[mask, 1], 
+                       c=[color], s=40, alpha=0.75, label=f'Cluster {label}', zorder=2)
+    
+    title = f"HDBSCAN Result - {stats['n_clusters']} clusters"
+    if 'dbcv_score' in stats:
+        title += f"\nDBCV: {stats['dbcv_score']}"
+    ax1.set_title(title)
+    ax1.set_xlabel("UMAP Dim 1")
+    ax1.set_ylabel("UMAP Dim 2")
+    ax1.legend(loc='best', fontsize=8)
 
-        for k in k_range:
-            kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
-            labels = kmeans.fit_predict(embeddings)
-            inertias[k] = kmeans.inertia_
+    # Bar chart
+    cluster_labels = [l for l in unique_labels if l != -1]
+    counts = [int((labels == l).sum()) for l in cluster_labels]
+    colors = [palette[l % len(palette)] for l in cluster_labels]
+    
+    ax2.bar([f"C{l}" for l in cluster_labels], counts, color=colors)
+    if -1 in unique_labels:
+        ax2.bar(["Outlier"], [int((labels == -1).sum())], color='lightgray')
+    ax2.set_title("Cluster Sizes")
+    ax2.set_ylabel("Number of Images")
 
-            if k > 1:
-                mask = labels != -1
-                if np.sum(mask) > 1:
-                    silhouette_scores[k] = silhouette_score(embeddings[mask], labels[mask])
-
-        return {
-            'inertias': inertias,
-            'silhouette_scores': silhouette_scores,
-            'optimal_k': max(silhouette_scores.keys(), key=silhouette_scores.get) if silhouette_scores else None
-        }
+    plt.tight_layout()
+    # Path output plot diperbaiki agar ke root plots/
+    plot_path = Path("plots") / "hdbscan_result.png"
+    plot_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(plot_path, dpi=150)
+    plt.close()
+    logging.info(f"HDBSCAN plot saved to {plot_path}")
 
 
 def cluster_embeddings(
@@ -166,83 +189,26 @@ def cluster_embeddings(
     save_plots: bool = True,
     **kwargs
 ) -> Dict[str, Any]:
-    """
-    Cluster embeddings.
-
-    Args:
-        embeddings_path: Path to embeddings.npy
-        output_dir: Directory to save cluster assignments
-        method: Clustering method
-        n_clusters: Number of clusters
-        save_plots: Whether to save visualization plots
-        **kwargs: Additional parameters
-
-    Returns:
-        Dictionary with clustering results
-    """
-    # Load embeddings
+    """Cluster embeddings entry point"""
     embeddings = np.load(embeddings_path)
     logging.info(f"Loaded embeddings with shape: {embeddings.shape}")
 
-    # Create output directory
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # Initialize clustering engine
     clusterer = ClusteringEngine(method=method, n_clusters=n_clusters, **kwargs)
-
-    # Cluster embeddings
     labels = clusterer.fit_predict(embeddings)
-
-    # Get cluster statistics
     stats = clusterer.get_cluster_stats(embeddings)
 
-    # Save cluster assignments
-    labels_path = output_path / f"cluster_assignments_{method}_{n_clusters}clusters.csv"
+    labels_path = output_path / f"cluster_assignments_{method}.csv"
     df = clusterer.save_labels(labels, str(labels_path))
 
-    # Find optimal k if using kmeans
-    if method == 'kmeans':
-        optimal_k_results = clusterer.find_optimal_k(embeddings)
-        stats['optimal_k'] = optimal_k_results['optimal_k']
-        stats['inertias'] = optimal_k_results['inertias']
-        stats['silhouette_scores'] = optimal_k_results['silhouette_scores']
+    if method == 'hdbscan' and save_plots:
+        plot_hdbscan_result(embeddings, labels, stats, output_dir)
 
-        # Save elbow plot
-        if save_plots:
-            plt.figure(figsize=(12, 5))
-
-            # Elbow plot
-            plt.subplot(1, 2, 1)
-            plt.plot(list(stats['inertias'].keys()), list(stats['inertias'].values()), 'bo-')
-            plt.xlabel('Number of clusters (k)')
-            plt.ylabel('Inertia')
-            plt.title('Elbow Method')
-            plt.grid(True)
-
-            # Silhouette plot
-            plt.subplot(1, 2, 2)
-            if stats['silhouette_scores']:
-                plt.plot(list(stats['silhouette_scores'].keys()),
-                        list(stats['silhouette_scores'].values()), 'go-')
-                plt.xlabel('Number of clusters (k)')
-                plt.ylabel('Silhouette Score')
-                plt.title('Silhouette Score')
-                plt.grid(True)
-
-            plt.tight_layout()
-            plot_path = output_path / f"elbow_silhouette_{method}_{n_clusters}clusters.png"
-            plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-            plt.close()
-            logging.info(f"Elbow plot saved to {plot_path}")
-
-    # Save statistics
-    stats_path = output_path / f"cluster_stats_{method}_{n_clusters}clusters.json"
+    stats_path = output_path / f"cluster_stats_{method}.json"
     with open(stats_path, 'w') as f:
-        import json
         json.dump(stats, f, indent=2)
-
-    logging.info(f"Clustering statistics saved to {stats_path}")
 
     return {
         'labels': labels,
@@ -255,49 +221,35 @@ def cluster_embeddings(
 
 def main():
     parser = argparse.ArgumentParser(description='Cluster embeddings')
-    parser.add_argument('--embeddings', type=str, required=True,
-                       help='Path to embeddings.npy')
-    parser.add_argument('--output-dir', type=str, required=True,
-                       help='Directory to save cluster assignments')
-    parser.add_argument('--method', type=str, default='kmeans',
-                       choices=['kmeans', 'dbscan', 'agglomerative'],
-                       help='Clustering method')
-    parser.add_argument('--n-clusters', type=int, default=8,
-                       help='Number of clusters (for kmeans/agglomerative)')
-    parser.add_argument('--eps', type=float, default=0.5,
-                       help='Epsilon for DBSCAN (default: 0.5)')
-    parser.add_argument('--min-samples', type=int, default=5,
-                       help='Minimum samples for DBSCAN (default: 5)')
-    parser.add_argument('--save-plots', action='store_true',
-                       help='Save elbow and silhouette plots')
+    parser.add_argument('--embeddings', type=str, required=True, help='Path to embeddings.npy')
+    parser.add_argument('--output-dir', type=str, required=True, help='Directory to save results')
+    parser.add_argument('--method', type=str, default='kmeans', choices=['kmeans', 'dbscan', 'hdbscan', 'agglomerative'])
+    parser.add_argument('--n-clusters', type=int, default=8, help='K for KMeans')
+    parser.add_argument('--min-cluster-size', type=int, default=5, help='HDBSCAN parameter')
+    parser.add_argument('--min-samples', type=int, default=None, help='HDBSCAN parameter')
+    parser.add_argument('--save-plots', action='store_true')
 
     args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-    # Setup logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s'
-    )
-
-    # Cluster embeddings
     results = cluster_embeddings(
         embeddings_path=args.embeddings,
         output_dir=args.output_dir,
         method=args.method,
         n_clusters=args.n_clusters,
-        eps=args.eps,
+        min_cluster_size=args.min_cluster_size,
         min_samples=args.min_samples,
         save_plots=args.save_plots
     )
 
-    print(f"\nClustering complete!")
-    print(f"Method: {results['stats']['method']}")
-    print(f"Number of clusters: {results['stats']['n_clusters']}")
-    if 'optimal_k' in results['stats']:
-        print(f"Optimal k (silhouette): {results['stats']['optimal_k']}")
+    print(f"\nClustering complete via {args.method}!")
+    print(f"Clusters found: {results['stats']['n_clusters']}")
+    if args.method == 'hdbscan':
+        print(f"Outliers: {results['stats']['n_noise']} ({results['stats']['outlier_ratio_pct']}%)")
+        if 'dbcv_score' in results['stats']:
+            print(f"DBCV Score: {results['stats']['dbcv_score']}")
     if 'silhouette_score' in results['stats']:
-        print(f"Silhouette score: {results['stats']['silhouette_score']:.4f}")
-    print(f"Cluster assignments saved to: {results['labels_path']}")
+        print(f"Silhouette Score: {results['stats']['silhouette_score']}")
 
 
 if __name__ == "__main__":

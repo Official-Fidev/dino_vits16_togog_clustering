@@ -29,7 +29,7 @@ def main():
     # Extract features from processed datasets
     stats = extractor.extract_from_directory(
         input_dir="data/processed/resized_256x256",
-        output_dir="features/resized_256x256",
+        output_dir="outputs/features/resized_256x256",
         batch_size=32
     )
 
@@ -37,12 +37,12 @@ def main():
     print("FEATURE EXTRACTION COMPLETE!")
     print("="*50)
     print(f"Input directory: data/processed/resized_256x256")
-    print(f"Output directory: features/resized_256x256")
+    print(f"Output directory: outputs/features/resized_256x256")
     print(f"Total files: {stats['total_files']}")
     print(f"Successfully processed: {stats['processed']}")
     print(f"Failed: {stats['failed']}")
-    print(f"Features saved as: features/resized_256x256/features.npy")
-    print(f"Metadata: features/resized_256x256/metadata.json")
+    print(f"Features saved as: outputs/features/resized_256x256/features.npy")
+    print(f"Metadata: outputs/features/resized_256x256/metadata.json")
     print("="*50)
 
 

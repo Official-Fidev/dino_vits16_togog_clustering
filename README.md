@@ -6,7 +6,7 @@ Repositori ini berisi implementasi sistem klasifikasi visual otomatis untuk patu
 - **Self-Supervised Learning**: Menggunakan backbone DINO ViT-S16 untuk ekstraksi fitur yang kaya.
 - **Deep Feature Extraction**: Transformasi gambar menjadi vektor fitur 768-dimensi.
 - **Efficient Dimensionality Reduction**: Reduksi dimensi menggunakan UMAP untuk performa clustering yang lebih baik.
-- **Automated Clustering**: Pengelompokan otomatis dengan K-Means.
+- **Automated Clustering**: Pengelompokan otomatis dengan HDBSCAN / K-Means.
 - **Interactive Setup**: Skrip instalasi cerdas yang mendeteksi dukungan GPU/CUDA secara otomatis.
 
 ---
@@ -41,9 +41,14 @@ source dino-env/bin/activate
 Anda dapat menjalankan seluruh proses secara otomatis atau langkah demi langkah.
 
 ### A. Jalankan Seluruh Proses (Otomatis)
+Gunakan skrip utama untuk menjalankan dari reduksi dimensi hingga visualisasi:
 ```bash
 chmod +x run_all.sh
 ./run_all.sh
+```
+Untuk pengguna Windows dengan Conda:
+```cmd
+run_all.bat
 ```
 
 ### B. Jalankan Langkah demi Langkah (Manual)
@@ -58,32 +63,71 @@ chmod +x run_all.sh
     ```
 3.  **Dimensionality Reduction**: Reduksi fitur ke 2D menggunakan UMAP.
     ```bash
-    python3 src/dim_reducer.py --method umap --n-components 2
+    python3 src/dim_reducer.py \
+      --features outputs/features/resized_256x256/features.npy \
+      --output-dir outputs/embeddings/resized_256x256 \
+      --method umap \
+      --n-components 2
     ```
-4.  **Clustering**: Mengelompokkan gambar ke dalam 8 cluster (default).
+4.  **Clustering (HDBSCAN/K-Means)**: Mengelompokkan data berdasarkan kemiripan visual.
     ```bash
-    python3 src/clustering.py --method kmeans --n-clusters 8 --save-plots
+    python3 src/clustering.py \
+      --embeddings outputs/embeddings/resized_256x256/embeddings_umap_2d.npy \
+      --output-dir outputs/clusters/resized_256x256 \
+      --method hdbscan \
+      --min-cluster-size 5 \
+      --save-plots
     ```
 5.  **Visualization**: Menghasilkan scatter plot dan grid contoh gambar.
     ```bash
-    python3 visualize_clusters.py
+    python3 visualize_clusters.py \
+      --embeddings outputs/embeddings/resized_256x256/embeddings_umap_2d.npy \
+      --clusters outputs/clusters/resized_256x256/cluster_assignments_hdbscan.csv \
+      --metadata outputs/features/resized_256x256/metadata.json \
+      --output-dir outputs/plots/resized_256x256 \
+      --raw-images data/raw/resized_datasets/resized_256x256 \
+      --samples 15
+
+    python3 visualize_comparison.py \
+      --clusters outputs/clusters/resized_256x256/cluster_assignments_hdbscan.csv \
+      --metadata outputs/features/resized_256x256/metadata.json \
+      --raw-images data/raw/resized_datasets/resized_256x256 \
+      --output-dir outputs/plots/resized_256x256 \
+      --samples 6
     ```
 
 ---
 
-## 📊 Struktur Folder
-- `src/`: Modul utama (loader, model, clustering, dll).
+## ⚙️ Parameter Penting
+
+Beberapa skrip mendukung parameter tambahan untuk kustomisasi:
+
+| Parameter | Deskripsi | Default |
+|-----------|-----------|---------|
+| `--n-clusters` | Jumlah kelompok (K) pada K-Means | `8` |
+| `--min-cluster-size` | Ukuran cluster minimum untuk HDBSCAN | `5` |
+| `--method` | Metode reduksi (`umap`, `pca`, `tsne`) | `umap` |
+| `--samples` | Jumlah sampel gambar per cluster yang ditampilkan | `15` |
+| `--output-dir` | Folder tempat menyimpan hasil | (Sesuai tahap) |
+
+---
+
+## 📊 Struktur Folder Utama
+- `src/`: Modul inti (loader, model, clustering logic, dll).
+- `docs/`: Dokumen pedoman, penjelasan flowchart, dan referensi.
 - `data/`: Dataset gambar (tidak masuk Git).
-- `features/`: Vektor fitur hasil ekstraksi.
-- `embeddings/`: Hasil reduksi dimensi (UMAP/PCA).
-- `plots/`: Hasil visualisasi grafik dan sampel cluster.
-- `results/summary.md`: Laporan performa clustering.
+- `outputs/`: Folder kumpulan hasil eksekusi program.
+  - `outputs/features/`: Vektor fitur hasil ekstraksi.
+  - `outputs/embeddings/`: Hasil reduksi dimensi (UMAP/PCA).
+  - `outputs/clusters/`: Hasil pelabelan kelompok.
+  - `outputs/plots/`: Hasil visualisasi grafik dan sampel cluster.
+  - `outputs/results/summary.md`: Laporan performa clustering.
 
 ---
 
 ## 📖 Dokumentasi Tambahan
-- [Panduan Menjalankan](PANDUAN_MENJALANKAN.md): Detail parameter dan instruksi manual.
-- [Flowcharts](FLOWCHARTS.md): Diagram alur logika sistem.
+- [Flowcharts](FLOWCHART_UPDATED.md): Diagram alur logika sistem terbaru.
+- Untuk dokumen penjelasan teknis skripsi, periksa folder `docs/skripsi/`.
 
 ---
 *Developed for research on Balinese Traditional Statue Classification.*
