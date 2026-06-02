@@ -44,7 +44,7 @@ class ClusteringEngine:
             dbscan_kwargs = {k: v for k, v in kwargs.items() if k in ['eps', 'min_samples', 'metric', 'algorithm']}
             self.clusterer = DBSCAN(**dbscan_kwargs)
         elif method == 'hdbscan':
-            hdb_kwargs = {k: v for k, v in kwargs.items() if k in ['min_cluster_size', 'min_samples', 'cluster_selection_method', 'metric']}
+            hdb_kwargs = {k: v for k, v in kwargs.items() if k in ['min_cluster_size', 'min_samples', 'cluster_selection_method', 'cluster_selection_epsilon', 'metric']}
             self.clusterer = hdbscan.HDBSCAN(
                 prediction_data=True,
                 gen_min_span_tree=True,
@@ -187,6 +187,7 @@ def cluster_embeddings(
     method: str = 'kmeans',
     n_clusters: int = 8,
     save_plots: bool = True,
+    embeddings_2d_path: Optional[str] = None,
     **kwargs
 ) -> Dict[str, Any]:
     """Cluster embeddings entry point"""
@@ -204,7 +205,11 @@ def cluster_embeddings(
     df = clusterer.save_labels(labels, str(labels_path))
 
     if method == 'hdbscan' and save_plots:
-        plot_hdbscan_result(embeddings, labels, stats, output_dir)
+        plot_embeddings = embeddings
+        if embeddings_2d_path:
+            plot_embeddings = np.load(embeddings_2d_path)
+            logging.info(f"Loaded 2D embeddings for plotting: {plot_embeddings.shape}")
+        plot_hdbscan_result(plot_embeddings, labels, stats, output_dir)
 
     stats_path = output_path / f"cluster_stats_{method}.json"
     with open(stats_path, 'w') as f:
@@ -227,19 +232,40 @@ def main():
     parser.add_argument('--n-clusters', type=int, default=8, help='K for KMeans')
     parser.add_argument('--min-cluster-size', type=int, default=5, help='HDBSCAN parameter')
     parser.add_argument('--min-samples', type=int, default=None, help='HDBSCAN parameter')
+    parser.add_argument('--cluster-selection-epsilon', type=float, default=0.0, help='HDBSCAN cluster selection epsilon')
     parser.add_argument('--save-plots', action='store_true')
+    parser.add_argument('--embeddings-2d', type=str, default=None, help='Path to 2D embeddings for plotting (if clustering on higher dimensions)')
+    parser.add_argument('--params-file', type=str, default=None, help='Path to best_params.json from auto-tuner')
 
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+    # Override parameters if params_file is provided
+    min_cluster_size = args.min_cluster_size
+    min_samples = args.min_samples
+    cluster_selection_epsilon = args.cluster_selection_epsilon
+    
+    if args.params_file and Path(args.params_file).exists():
+        logging.info(f"Loading auto-tuned parameters from {args.params_file}")
+        with open(args.params_file, 'r') as f:
+            best_params = json.load(f)
+            if 'min_cluster_size' in best_params:
+                min_cluster_size = best_params['min_cluster_size']
+            if 'min_samples' in best_params:
+                min_samples = best_params['min_samples']
+            if 'cluster_selection_epsilon' in best_params:
+                cluster_selection_epsilon = best_params['cluster_selection_epsilon']
 
     results = cluster_embeddings(
         embeddings_path=args.embeddings,
         output_dir=args.output_dir,
         method=args.method,
         n_clusters=args.n_clusters,
-        min_cluster_size=args.min_cluster_size,
-        min_samples=args.min_samples,
-        save_plots=args.save_plots
+        min_cluster_size=min_cluster_size,
+        min_samples=min_samples,
+        cluster_selection_epsilon=cluster_selection_epsilon,
+        save_plots=args.save_plots,
+        embeddings_2d_path=args.embeddings_2d
     )
 
     print(f"\nClustering complete via {args.method}!")

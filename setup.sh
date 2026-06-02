@@ -68,7 +68,7 @@ fi
 
 # Instal dependensi umum
 echo "Menginstal dependensi tambahan (Scikit-learn, UMAP, HDBSCAN, Pandas, dll)..."
-pip install numpy pandas scikit-learn umap-learn hdbscan matplotlib seaborn tqdm pillow
+pip install numpy pandas scikit-learn umap-learn hdbscan matplotlib seaborn tqdm pillow optuna
 
 echo "----------------------------------------------------------"
 echo "[4/4] Instalasi Selesai!"

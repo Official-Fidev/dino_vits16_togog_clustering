@@ -197,6 +197,8 @@ def main():
                        help='Number of neighbors for UMAP (default: 15)')
     parser.add_argument('--min-dist', type=float, default=0.1,
                        help='Minimum distance for UMAP (default: 0.1)')
+    parser.add_argument('--metric', type=str, default='euclidean',
+                       help='Metric for UMAP/DBSCAN (default: euclidean. cosine is better for DINO)')
     parser.add_argument('--perplexity', type=int, default=30,
                        help='Perplexity for t-SNE (default: 30)')
 
@@ -216,6 +218,7 @@ def main():
         n_components=args.n_components,
         n_neighbors=args.n_neighbors,
         min_dist=args.min_dist,
+        metric=args.metric,
         perplexity=args.perplexity
     )
 

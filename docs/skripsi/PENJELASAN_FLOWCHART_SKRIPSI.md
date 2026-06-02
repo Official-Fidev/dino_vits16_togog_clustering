@@ -6,29 +6,66 @@ Berikut adalah narasi ilmiah formal yang menjelaskan keseluruhan diagram alur si
 
 ### 1. Alur Keseluruhan Sistem (Overall Pipeline)
 
-Gambar 3.1 mengilustrasikan arsitektur sistem yang diusulkan, yang beroperasi melalui lima tahapan pemrosesan data yang berurutan. Tahap awal melibatkan pra-pemrosesan (*preprocessing*) citra mentah untuk menstandarisasi dimensi dan menormalisasi nilai piksel citra. Selanjutnya, citra yang telah diproses dimasukkan ke dalam tahap ekstraksi fitur menggunakan arsitektur DINO ViT-S16, yang mentransformasikan representasi visual ke dalam ruang fitur berdimensi tinggi. Mengingat kompleksitas komputasional pada ruang dimensi tinggi, fitur tersebut kemudian direduksi ke dalam ruang dua dimensi menggunakan algoritma *Uniform Manifold Approximation and Projection* (UMAP). Titik-titik data hasil proyeksi tersebut kemudian menjadi masukan bagi algoritma HDBSCAN untuk melakukan pengelompokan berbasis kepadatan (*density-based clustering*). Tahap akhir dari sistem ini adalah visualisasi dan pelaporan, di mana hasil dari proses *clustering* dievaluasi secara kuantitatif dan disajikan secara grafis untuk memfasilitasi analisis lebih lanjut.
+Gambar 3.1 mengilustrasikan arsitektur sistem yang diusulkan, yang beroperasi melalui enam tahapan pemrosesan data yang berurutan. Tahap awal melibatkan pra-pemrosesan (*preprocessing*) citra mentah untuk menstandarisasi dimensi dan menormalisasi nilai piksel citra. Selanjutnya, citra dimasukkan ke dalam tahap ekstraksi fitur menggunakan arsitektur DINO ViT-S16, menghasilkan vektor berdimensi tinggi (768D). Mengingat kompleksitas komputasional, fitur tersebut direduksi ke dalam ruang 10 dimensi (10D) menggunakan algoritma *Uniform Manifold Approximation and Projection* (UMAP) agar struktur relasi data tetap terjaga optimal untuk clustering. Selanjutnya, algoritma HDBSCAN yang parameternya telah dioptimasi secara otomatis menggunakan Optuna melakukan pengelompokan berbasis kepadatan. Untuk keperluan visualisasi bagi manusia, dimensi 10D direduksi lagi menjadi 2 dimensi (2D). Tahap akhir dari sistem ini adalah evaluasi kuantitatif dan pelaporan grafis.
 
 ```mermaid
 graph TD
-    A[Raw Images] --> B[Stage 1: Preprocessing]
-    B --> C[Stage 2: Feature Extraction]
-    C --> D[Stage 3: Dimensionality Reduction]
-    D --> E[Stage 4: HDBSCAN Density Clustering]
-    E --> F[Stage 5: Visualization & Reporting]
+    Raw[Citra Mentah Patung] --> Pre1
+    
+    subgraph Stage1 [Tahap 1: Pra-pemrosesan]
+        Pre1[Center Crop<br>224x224] --> Pre2[Konversi Tensor<br>& Normalisasi]
+    end
+    
+    Pre2 --> Feat1
+    
+    subgraph Stage2 [Tahap 2: Ekstraksi Fitur]
+        Feat1[Model DINO<br>ViT-S16] --> Feat2[Vektor<br>768-Dimensi]
+    end
+    
+    Feat2 --> Dim1
+    
+    subgraph Stage3 [Tahap 3: Reduksi 10D]
+        Dim1[UMAP<br>n_components: 10] --> Dim2[embeddings_10d.npy]
+    end
+    
+    Dim2 --> Clust1
+    
+    subgraph Stage4 [Tahap 4: Klasterisasi]
+        Clust1[Optuna<br>Tuning] --> Clust2[Fit HDBSCAN<br>pada 10D]
+        Clust2 --> Clust3[Pemetaan ID Klaster<br>& Outlier]
+    end
+    
+    Feat2 --> Vis1
+    
+    subgraph Stage5 [Tahap 5: Reduksi 2D]
+        Vis1[UMAP<br>n_components: 2] --> Vis2[embeddings_2d.npy]
+    end
+    
+    Clust3 --> Eval1
+    Vis2 --> Eval2
+    Clust3 -->|Warna Label| Eval2
+    
+    subgraph Stage6 [Tahap 6: Evaluasi]
+        Eval1[DBCV &<br>Silhouette] --> Rep[Pelaporan<br>Hasil Akhir]
+        Eval2[2D Scatter<br>Plot] --> Rep
+        Clust3 --> Eval3[Comparison<br>Grid]
+        Eval3 --> Rep
+    end
 ```
 
 ---
 
 ### 2. Detail Tahap 1: Pra-pemrosesan Data (Preprocessing Detail)
 
-Gambar 3.2 merincikan tahapan pra-pemrosesan yang bertujuan untuk menstandarkan masukan sebelum diproses oleh model *deep learning*. Proses dimulai dengan memindai seluruh direktori yang berisi citra mentah patung. Setiap citra yang terbaca kemudian diubah ukurannya (*resize*) secara seragam menjadi resolusi 256x256 piksel untuk memenuhi syarat dimensi spasial model arsitektur *Vision Transformer*. Setelah penyesuaian resolusi spasial, sistem melakukan normalisasi nilai intensitas piksel untuk mentransformasikan rentang warna ke skala standar, sehingga mempercepat konvergensi dan menjaga stabilitas ekstraksi fitur. Berkas citra yang telah terstandarisasi ini selanjutnya disimpan secara terstruktur bersama dengan berkas manifest (`manifest.csv`) yang mendokumentasikan pemetaan *dataset*.
+Gambar 3.2 merincikan tahapan pra-pemrosesan yang bertujuan untuk menstandarkan masukan sebelum diproses oleh model *deep learning*. Proses dimulai dengan memindai direktori citra mentah yang sebelumnya telah diseragamkan ke ukuran 256x256 piksel. Tahap krusial pertama adalah melakukan pemotongan bagian tengah citra (*Center Crop*) menjadi resolusi 224x224 piksel untuk mempertahankan fokus objek utama sekaligus memenuhi syarat dimensi spasial model *Vision Transformer*. Selanjutnya, citra dikonversi menjadi format matriks (*PyTorch Tensor*) dan nilai intensitas pikselnya dinormalisasi menggunakan standar distribusi warna *ImageNet* (*Z-score normalization*), sehingga mempercepat konvergensi dan menjaga stabilitas ekstraksi fitur. Berkas tensor yang telah terstandarisasi ini selanjutnya disimpan (.pt) secara terstruktur bersama dengan berkas manifest (`manifest.csv`) yang mendokumentasikan pemetaan *dataset*.
 
 ```mermaid
 graph TD
-    Raw[Citra Mentah Patung] --> Scan{Pindai Direktori}
-    Scan --> Resize[Ubah Ukuran ke 256x256 Piksel]
-    Resize --> Norm[Normalisasi Nilai Piksel]
-    Norm --> SaveData[Simpan Citra Terstandarisasi]
+    Raw[Citra Patung 256x256] --> Scan{Pindai Direktori}
+    Scan --> Crop[Center Crop 224x224]
+    Crop --> Tensor[Konversi ke Tensor]
+    Tensor --> Norm[Normalisasi ImageNet]
+    Norm --> SaveData[Simpan Tensor .pt]
     SaveData --> SaveManifest[Hasilkan manifest.csv]
 ```
 
@@ -55,64 +92,58 @@ graph TD
 
 ---
 
-### 4. Detail Tahap 3: Reduksi Dimensi (Dimensionality Reduction Detail)
+### 4. Detail Tahap 3 & 5: Reduksi Dimensi 10D dan 2D (Dimensionality Reduction Detail)
 
-Gambar 3.4 mendemonstrasikan tahapan reduksi dimensi spasial, yang berfungsi untuk meminimalkan dampak "kutukan dimensi" (*curse of dimensionality*) serta mempersiapkan data untuk pengelompokan spasial. Vektor 768-dimensi dimasukkan ke dalam algoritma *Uniform Manifold Approximation and Projection* (UMAP). Sistem menetapkan parameter ruang target sebesar dua komponen (`n_components: 2`) untuk proyeksi visual 2D. Algoritma kemudian mengeksekusi metode *fit and transform*, di mana ia menyusun graf topologi lokal pada ruang dimensi tinggi dan mengoptimalkan tata letaknya (layout) pada ruang proyeksi berdimensi rendah, dengan mempertahankan struktur kedekatan titik data. Luaran dari proses ini adalah titik koordinat dua dimensi yang kemudian disimpan sebagai matriks baru (`embeddings_umap_2d.npy`).
+Gambar 3.4 mendemonstrasikan tahapan reduksi dimensi spasial dengan pendekatan dua langkah (*two-step approach*). Pertama, vektor 768-dimensi dimasukkan ke dalam algoritma *Uniform Manifold Approximation and Projection* (UMAP) dengan target ruang 10 komponen (`n_components: 10`). Dimensi 10D ini sangat krusial karena mampu meminimalkan dampak "kutukan dimensi" (*curse of dimensionality*) sekaligus tetap mempertahankan relasi kepadatan fitur untuk dibaca oleh algoritma mesin (HDBSCAN). Kedua, sistem juga membuat model reduksi sekunder ke ruang 2 dimensi (`n_components: 2`) yang ditujukan *murni* untuk keperluan pemetaan visual pada kanvas layar bagi manusia. Hasil dari tahap ini adalah dua matriks: koordinat 10D untuk *clustering* (`embeddings_umap_10d.npy`) dan koordinat 2D untuk visualisasi (`embeddings_umap_2d.npy`).
 
 ```mermaid
 graph TD
     Feat[Fitur 768-Dimensi] --> UMAPInit[Inisialisasi UMAP]
     
-    subgraph "UMAP Parameters"
-    UMAPInit -.-> Param1[n_components: 2]
-    UMAPInit -.-> Param2[metric: cosine/euclidean]
+    subgraph "UMAP Target Dimensions"
+    UMAPInit -.-> Param1[n_components: 10 untuk Clustering]
+    UMAPInit -.-> Param2[n_components: 2 untuk Visualisasi]
     end
     
     UMAPInit --> FitTrans[Fit & Transform Data]
-    FitTrans --> Opt[Optimasi Topologi Lokal & Global]
-    Opt --> LowDim[Hasilkan Koordinat Laten 2-Dimensi]
-    LowDim --> SaveEmb[Simpan ke embeddings_umap_2d.npy]
+    FitTrans --> Output10[Simpan embeddings_umap_10d.npy]
+    FitTrans --> Output2[Simpan embeddings_umap_2d.npy]
 ```
 
 ---
 
-### 5. Detail Tahap 4: Klasterisasi HDBSCAN (HDBSCAN Clustering Detail)
+### 5. Detail Tahap 4: Klasterisasi HDBSCAN & Optuna (Auto-Tuned HDBSCAN Detail)
 
-Gambar 3.5 menunjukkan proses klasterisasi secara mendetail, yang dimulai dengan menerima matriks representasi dua dimensi (`embeddings_umap_2d.npy`) sebagai masukan untuk menginisialisasi objek HDBSCAN. Inisialisasi ini mengonfigurasi parameter utama, yaitu `min_cluster_size`, untuk mendefinisikan batas minimal anggota suatu klaster. Selain itu, sistem menetapkan metode pemilihan klaster menggunakan *Excess of Mass* (`eom`) guna mengoptimalkan stabilitas klaster yang terbentuk. Setelah proses *fit* dan *predict* dieksekusi, algoritma melakukan evaluasi kepadatan distribusi data. Area dengan kepadatan tinggi (*dense region*) akan diidentifikasi sebagai inti klaster dan diberikan label identifikasi klaster, sedangkan data yang berada pada area renggang atau terisolasi (*sparse/isolated*) akan diklasifikasikan sebagai *noise* dan diberikan label *outlier* (-1). Kinerja dari partisi data ini kemudian dievaluasi secara matematis menggunakan *Density-Based Cluster Validity* (DBCV) untuk menilai kualitas kepadatan klaster, serta *Silhouette Score* yang dihitung secara eksklusif pada data non-*outlier*. Hasil pemetaan ini diekspor ke dalam format tabular (`cluster_assignments.csv`).
+Gambar 3.5 menunjukkan proses klasterisasi yang telah ditingkatkan menggunakan mesin optimasi *Hyperparameter* Optuna. Proses dimulai dengan menerima matriks 10 dimensi (`embeddings_umap_10d.npy`). Alih-alih menebak parameter, Optuna secara otomatis melakukan iterasi (contoh: 30 *trials*) untuk mencari kombinasi terbaik dari `min_cluster_size`, `min_samples`, dan `cluster_selection_epsilon`. Optuna dirancang untuk memaksimalkan skor *Density-Based Cluster Validity* (DBCV) sekaligus memberikan penalti jika jumlah *outlier* terlalu tinggi (misal > 40%). Melalui mekanisme *cluster_selection_epsilon*, kelompok-kelompok kecil yang jaraknya saling berdekatan digabungkan (dijahit) menjadi klaster utama yang lebih besar dan rasional. Data di area padat menjadi inti klaster (0, 1, 2, dst.), sementara yang sangat terisolasi dilabeli -1 (Outlier). Hasil pemetaan klaster yang optimal diekspor ke dalam format tabular (`cluster_assignments.csv`).
 
 ```mermaid
 graph TD
-    Embed[embeddings_umap_2d.npy] --> HDB[Initialize HDBSCAN]
+    Embed[embeddings_umap_10d.npy] --> Optuna[Optuna Hyperparameter Tuning]
     
-    subgraph "HDBSCAN Parameters"
-    HDB -.-> P1[min_cluster_size: e.g., 5]
-    HDB -.-> P2[cluster_selection_method: 'eom']
+    subgraph "Search Space"
+    Optuna -.-> P1[min_cluster_size: 10 - 150]
+    Optuna -.-> P2[min_samples: 5 - 30]
+    Optuna -.-> P3[cluster_selection_epsilon: 0.0 - 0.5]
     end
     
-    HDB --> Fit[Fit & Predict]
-    Fit --> Split{Cek Kepadatan Data}
+    Optuna --> HDB[Fit HDBSCAN dengan Parameter Terbaik]
+    HDB --> Split{Cek Kepadatan & Epsilon}
     
-    Split -->|Dense Region| Core[Tetapkan ID Klaster: 0, 1, 2...]
-    Split -->|Sparse/Isolated| Outlier[Tetapkan Label Outlier: -1]
+    Split -->|Digabungkan jika berdekatan| Core[Tetapkan ID Klaster: 0, 1, 2...]
+    Split -->|Sangat Terisolasi| Outlier[Tetapkan Label Outlier: -1]
     
-    Core --> Metrics[Hitung Metrik Evaluasi]
+    Core --> Metrics[Evaluasi: DBCV Score & Penalty Outlier]
     Outlier --> Metrics
     
-    subgraph "Evaluasi Model"
-    Metrics --> DBCV[DBCV Score]
-    Metrics --> Sil[Silhouette Score]
-    end
-    
-    DBCV --> Output[Hasilkan Output]
-    Sil --> Output
+    Metrics --> Output[Hasil Klasifikasi Optimal]
     Output --> CSV[Simpan cluster_assignments.csv]
 ```
 
 ---
 
-### 6. Detail Tahap 5: Visualisasi dan Dokumentasi (Visualization & Reporting)
+### 6. Detail Tahap 6: Evaluasi dan Visualisasi (Evaluation & Visualization)
 
-Gambar 3.6 memaparkan tahap akhir dari *pipeline*, yang berfokus pada interpretasi visual terhadap luaran algoritma sistem. Berdasarkan array label yang mencakup indeks klaster dan indikator anomali (-1), sistem melakukan penyaringan terstruktur untuk memisahkan data *outlier* dari anggota klaster yang valid. Data yang tergolong dalam klaster valid akan dipetakan ke dalam bentuk grafik sebaran (*scatter plot*) dengan palet warna diskrit untuk merepresentasikan batasan kelompok. Selain itu, sampel citra dari tiap klaster divisualisasikan dalam bentuk *comparison grid* yang menampilkan komparasi visual aktual antar kelompok. Di sisi lain, titik data yang diklasifikasikan sebagai *outlier* divisualisasikan dalam latar *scatter plot* menggunakan warna abu-abu netral (*grey noise*), guna memberikan konteks mengenai sebaran anomali. Keseluruhan metrik evaluasi beserta parameter operasional diagregasi dan didokumentasikan secara komprehensif ke dalam berkas `results/summary.md` sebagai instrumen empiris pelaporan penelitian.
+Gambar 3.6 memaparkan tahap 6 (tahap akhir) dari *pipeline*, yang berfokus pada interpretasi visual terhadap luaran algoritma sistem. Berdasarkan array label yang mencakup indeks klaster dan indikator anomali (-1), sistem melakukan penyaringan terstruktur untuk memisahkan data *outlier* dari anggota klaster yang valid. Data yang tergolong dalam klaster valid akan dipetakan ke dalam bentuk grafik sebaran (*scatter plot*) dengan palet warna diskrit untuk merepresentasikan batasan kelompok. Selain itu, sampel citra dari tiap klaster divisualisasikan dalam bentuk *comparison grid* yang menampilkan komparasi visual aktual antar kelompok. Di sisi lain, titik data yang diklasifikasikan sebagai *outlier* divisualisasikan dalam latar *scatter plot* menggunakan warna abu-abu netral (*grey noise*), guna memberikan konteks mengenai sebaran anomali. Keseluruhan metrik evaluasi beserta parameter operasional diagregasi dan didokumentasikan secara komprehensif ke dalam laporan metrik akhir sebagai instrumen empiris pelaporan penelitian.
 
 ```mermaid
 graph TD
@@ -127,6 +158,6 @@ graph TD
     Scatter --> PlotSave[Simpan hdbscan_result.png]
     Montage --> GridSave[Simpan cluster_comparison_grid.png]
     
-    PlotSave --> Report[Tulis Metrik ke summary.md]
+    PlotSave --> Report[Tulis Metrik ke Laporan Akhir]
     GridSave --> Report
 ```
