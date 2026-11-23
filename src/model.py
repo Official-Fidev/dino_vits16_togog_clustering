@@ -25,35 +25,31 @@ class DinoViT:
         logging.info(f"Initializing DINO {model_name} on {self.device}")
 
     def load_model(self):
-        """Load the DINO ViT-S16 model"""
+        """Load ViT-S/16 pretrained DINO (timm: vit_small_patch16_224.dino).
+
+        Keluaran model adalah token [CLS] berdimensi 384.
+        Catatan: versi lama memakai `dino.models` (tidak tersedia di pip)
+        sehingga selalu jatuh ke fallback torchvision vit_b_16 (ViT-Base,
+        768 dimensi). Fallback tersebut dihapus agar model sesuai judul.
+        """
         try:
-            # Try to import DINO-specific implementation
-            try:
-                # Try to install DINO if not available
-                import dino.models
-                from dino.models import vit_small
-                self.model = vit_small(pretrained=True)
-                logging.info("Loaded official DINO ViT-S16 model")
-            except ImportError:
-                # Fallback to regular ViT-S16
-                import torchvision.models as models
-                self.model = models.vit_b_16(pretrained=True)
-                # Remove classification head
-                self.model.heads = torch.nn.Identity()
-                logging.info("Loaded regular ViT-S16 (DINO-like)")
-
-            # Set to evaluation mode
-            self.model.eval()
-
-            # Move to device
-            self.model.to(self.device)
-
-            logging.info("DINO ViT-S16 model loaded successfully")
-
+            import timm
         except ImportError as e:
-            logging.error(f"Failed to import DINO/ViT model: {e}")
-            logging.error("Please install ViT-S16: pip install torchvision")
+            logging.error("Pustaka timm belum terpasang: pip install timm")
             raise
+
+        self.model = timm.create_model(
+            'vit_small_patch16_224.dino',  # ViT-S/16, bobot DINO
+            pretrained=True,
+            num_classes=0,                 # tanpa head -> fitur 384 dimensi
+        )
+        self.feature_dim = self.model.num_features  # 384
+
+        # Mode evaluasi (tanpa training / fine-tuning)
+        self.model.eval()
+        self.model.to(self.device)
+
+        logging.info(f"Loaded DINO ViT-S/16 (timm), feature_dim={self.feature_dim}")
 
     def get_transform(self):
         """Get the transformation pipeline for DINO"""
