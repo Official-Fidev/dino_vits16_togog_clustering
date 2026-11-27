@@ -8,19 +8,34 @@ echo       SETUP: DINO ViT-S/16 CLUSTERING (Windows)
 echo ==========================================================
 
 REM ---------- 1. Cek Python ----------
+REM Torch 2.5.1 dan hdbscan 0.8.44 hanya punya wheel sampai Python 3.12,
+REM jadi interpreter dipilih berdasarkan versinya, bukan yang paling baru.
+REM "python" dicoba lebih dulu supaya conda env yang sedang aktif terpakai.
 echo [1/5] Memeriksa Python...
-where py >nul 2>nul
-if %errorlevel%==0 (
-    set "PYLAUNCH=py -3"
-) else (
-    where python >nul 2>nul
-    if errorlevel 1 (
-        echo Error: Python tidak ditemukan di PATH.
-        echo Instal Python 3.12 dari python.org dan centang "Add python.exe to PATH".
-        exit /b 1
-    )
-    set "PYLAUNCH=python"
+set "PYLAUNCH="
+call :coba python
+call :coba py -3.12
+call :coba py -3.11
+call :coba py -3.10
+call :coba py -3
+
+if not defined PYLAUNCH (
+    echo.
+    echo Error: tidak ditemukan Python 3.10, 3.11, atau 3.12.
+    echo.
+    echo Python yang terdeteksi sekarang:
+    python --version 2>nul || echo   ^(python tidak ada di PATH^)
+    py -0 2>nul
+    echo.
+    echo Proyek ini memakai torch 2.5.1 dan hdbscan 0.8.44, yang belum punya
+    echo wheel untuk Python 3.13 ke atas. Siapkan Python 3.12 lalu ulangi.
+    echo.
+    echo   Pakai conda : conda create -y -n py312 python=3.12 ^&^& conda activate py312
+    echo   Tanpa conda : instal dari https://www.python.org/downloads/
+    exit /b 1
 )
+
+echo Memakai interpreter: %PYLAUNCH%
 %PYLAUNCH% --version
 
 REM ---------- 2. Deteksi GPU ----------
@@ -102,3 +117,14 @@ echo Untuk bekerja manual, aktifkan environment dulu:
 echo   dino-env\Scripts\activate
 echo ----------------------------------------------------------
 endlocal
+exit /b 0
+
+REM =========================================================
+REM  Subrutin: pakai kandidat interpreter bila versinya cocok
+REM  %* = perintah yang diuji, mis. "python" atau "py -3.12"
+REM =========================================================
+:coba
+if defined PYLAUNCH exit /b 0
+%* -c "import sys; sys.exit(0 if (3,10) <= sys.version_info < (3,13) else 1)" >nul 2>nul
+if not errorlevel 1 set "PYLAUNCH=%*"
+exit /b 0
