@@ -165,16 +165,43 @@ REM =========================================================
 where conda >nul 2>nul
 if errorlevel 1 exit /b 0
 
-set "CONDA_BASE="
-for /f "usebackq delims=" %%B in (`conda info --base`) do set "CONDA_BASE=%%B"
-if not defined CONDA_BASE exit /b 0
-
-set "PY312=%CONDA_BASE%\envs\py312\python.exe"
-if not exist "%PY312%" (
+REM Buat env bila belum terdaftar. Aman diulang.
+conda env list | findstr /r /c:"[\\/]py312 " /c:"[\\/]py312$" >nul 2>nul
+if errorlevel 1 (
     echo Python 3.12 belum ada. Membuat conda env "py312", mohon tunggu...
     conda create -y -n py312 python=3.12
+    if errorlevel 1 (
+        echo Peringatan: conda create gagal.
+        exit /b 0
+    )
 )
-if not exist "%PY312%" exit /b 0
 
+REM Tanyakan jalur interpreternya langsung ke conda, jangan menebak,
+REM karena folder envs bisa saja tidak berada di bawah conda base.
+set "PY312="
+for /f "usebackq delims=" %%P in (`conda run -n py312 python -c "import sys; print(sys.executable)" 2^>nul`) do set "PY312=%%P"
+
+REM Cadangan: tebak lewat conda base kalau conda run tidak memberi apa-apa.
+if not defined PY312 (
+    for /f "usebackq delims=" %%B in (`conda info --base 2^>nul`) do set "CONDA_BASE=%%B"
+    call :pakai_base
+)
+
+if not defined PY312 (
+    echo Peringatan: env py312 ada tetapi jalur python.exe tidak terbaca.
+    exit /b 0
+)
+if not exist "%PY312%" (
+    echo Peringatan: tidak menemukan %PY312%
+    exit /b 0
+)
+
+echo Memakai Python 3.12 dari conda: %PY312%
 call :coba "%PY312%"
+exit /b 0
+
+REM Dipanggil terpisah supaya %CONDA_BASE% dibaca setelah for /f selesai.
+:pakai_base
+if not defined CONDA_BASE exit /b 0
+if exist "%CONDA_BASE%\envs\py312\python.exe" set "PY312=%CONDA_BASE%\envs\py312\python.exe"
 exit /b 0
