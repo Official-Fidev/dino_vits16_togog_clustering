@@ -4,7 +4,8 @@
 cd "$(dirname "$(readlink -f "$0")")"
 LOG="run_ulang_vits16.log"; ST="run_ulang_vits16.status"
 echo "RUNNING" > "$ST"
-exec > "$LOG" 2>&1
+# Tampilkan keluaran di terminal DAN simpan ke berkas log sekaligus.
+exec > >(tee "$LOG") 2>&1
 set -x
 echo "START $(date)"
 
