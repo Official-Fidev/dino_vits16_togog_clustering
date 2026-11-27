@@ -92,10 +92,14 @@ class DinoDataset:
         """Create a manifest CSV with all processed files"""
         manifest_data = []
 
-        for pt_file in self.output_dir.glob("*.pt"):
+        # Petakan nama dasar (stem) ke berkas citra asli agar ekstensi
+        # asli (.png/.jpg/...) tetap tercatat di manifest.
+        stem_to_image = {p.stem: p for p in self.image_files}
+        for pt_file in sorted(self.output_dir.glob("*.pt")):
+            original = stem_to_image.get(pt_file.stem)
             manifest_data.append({
                 'filename': pt_file.name,
-                'original_path': str(pt_file).replace(str(self.output_dir), str(self.input_dir)).replace('.pt', Path(pt_file.stem).suffix),
+                'original_path': str(original) if original else '',
                 'processed_path': str(pt_file),
                 'size': pt_file.stat().st_size
             })

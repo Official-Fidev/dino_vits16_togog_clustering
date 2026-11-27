@@ -26,3 +26,6 @@ results/
 .DS_Store
 Thumbs.db
 +
+# Cadangan hasil run lama (besar, jangan dipush)
+outputs_lama_*/
+*.status
