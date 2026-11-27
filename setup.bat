@@ -8,29 +8,29 @@ echo       SETUP: DINO ViT-S/16 CLUSTERING (Windows)
 echo ==========================================================
 
 REM ---------- 1. Cek Python ----------
-REM Torch 2.5.1 dan hdbscan 0.8.44 hanya punya wheel sampai Python 3.12,
-REM jadi interpreter dipilih berdasarkan versinya, bukan yang paling baru.
+REM Wajib Python 3.12. numpy 2.5.4 dan scipy 1.18.1 butuh >= 3.12,
+REM sedangkan torch 2.5.1 tidak punya wheel untuk 3.13 ke atas.
 REM "python" dicoba lebih dulu supaya conda env yang sedang aktif terpakai.
 echo [1/5] Memeriksa Python...
 set "PYLAUNCH="
 call :coba python
 call :coba py -3.12
-call :coba py -3.11
-call :coba py -3.10
-call :coba py -3
+call :coba python3.12
 
 if not defined PYLAUNCH (
     echo.
-    echo Error: tidak ditemukan Python 3.10, 3.11, atau 3.12.
+    echo Error: Python 3.12 tidak ditemukan.
     echo.
     echo Python yang terdeteksi sekarang:
     python --version 2>nul || echo   ^(python tidak ada di PATH^)
     py -0 2>nul
     echo.
-    echo Proyek ini memakai torch 2.5.1 dan hdbscan 0.8.44, yang belum punya
-    echo wheel untuk Python 3.13 ke atas. Siapkan Python 3.12 lalu ulangi.
+    echo Proyek ini butuh Python 3.12 tepat: numpy 2.5.4 dan scipy 1.18.1
+    echo mensyaratkan 3.12 ke atas, sedangkan torch 2.5.1 tidak tersedia
+    echo untuk 3.13 ke atas. Siapkan 3.12 lalu jalankan setup.bat lagi.
     echo.
-    echo   Pakai conda : conda create -y -n py312 python=3.12 ^&^& conda activate py312
+    echo   Pakai conda : conda create -y -n py312 python=3.12
+    echo                 conda activate py312
     echo   Tanpa conda : instal dari https://www.python.org/downloads/
     exit /b 1
 )
@@ -72,10 +72,10 @@ if errorlevel 1 (
 
 REM Venv yang sudah ada bisa saja dibuat dengan Python yang tidak cocok
 REM (mis. 3.14 dari percobaan sebelumnya). Periksa dan hentikan lebih awal.
-python -c "import sys; sys.exit(0 if (3,10) <= sys.version_info < (3,13) else 1)" >nul 2>nul
+python -c "import sys; sys.exit(0 if sys.version_info[:2] == (3,12) else 1)" >nul 2>nul
 if errorlevel 1 (
     echo.
-    echo Error: dino-env memakai Python yang tidak didukung:
+    echo Error: dino-env tidak memakai Python 3.12:
     python --version
     echo.
     echo Hapus foldernya lalu jalankan setup.bat lagi:
@@ -133,11 +133,11 @@ endlocal
 exit /b 0
 
 REM =========================================================
-REM  Subrutin: pakai kandidat interpreter bila versinya cocok
+REM  Subrutin: pakai kandidat interpreter bila versinya tepat 3.12
 REM  %* = perintah yang diuji, mis. "python" atau "py -3.12"
 REM =========================================================
 :coba
 if defined PYLAUNCH exit /b 0
-%* -c "import sys; sys.exit(0 if (3,10) <= sys.version_info < (3,13) else 1)" >nul 2>nul
+%* -c "import sys; sys.exit(0 if sys.version_info[:2] == (3,12) else 1)" >nul 2>nul
 if not errorlevel 1 set "PYLAUNCH=%*"
 exit /b 0
