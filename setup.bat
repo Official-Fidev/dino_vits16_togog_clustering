@@ -70,6 +70,19 @@ if errorlevel 1 (
     exit /b 1
 )
 
+REM Venv yang sudah ada bisa saja dibuat dengan Python yang tidak cocok
+REM (mis. 3.14 dari percobaan sebelumnya). Periksa dan hentikan lebih awal.
+python -c "import sys; sys.exit(0 if (3,10) <= sys.version_info < (3,13) else 1)" >nul 2>nul
+if errorlevel 1 (
+    echo.
+    echo Error: dino-env memakai Python yang tidak didukung:
+    python --version
+    echo.
+    echo Hapus foldernya lalu jalankan setup.bat lagi:
+    echo   rmdir /s /q dino-env
+    exit /b 1
+)
+
 python -m pip install --upgrade pip --quiet
 
 REM ---------- 4. PyTorch ----------
