@@ -17,6 +17,9 @@ call :coba python
 call :coba py -3.12
 call :coba python3.12
 
+REM Belum ada 3.12 di PATH. Kalau conda tersedia, siapkan sendiri.
+if not defined PYLAUNCH call :siapkan_conda
+
 if not defined PYLAUNCH (
     echo.
     echo Error: Python 3.12 tidak ditemukan.
@@ -29,8 +32,9 @@ if not defined PYLAUNCH (
     echo mensyaratkan 3.12 ke atas, sedangkan torch 2.5.1 tidak tersedia
     echo untuk 3.13 ke atas. Siapkan 3.12 lalu jalankan setup.bat lagi.
     echo.
-    echo   Pakai conda : conda create -y -n py312 python=3.12
-    echo                 conda activate py312
+    echo Conda tidak terdeteksi, atau pembuatan env py312 gagal.
+    echo Pasang salah satu lalu jalankan setup.bat lagi:
+    echo   Miniconda   : https://docs.conda.io/en/latest/miniconda.html
     echo   Tanpa conda : instal dari https://www.python.org/downloads/
     exit /b 1
 )
@@ -53,6 +57,17 @@ if %errorlevel%==0 (
 
 REM ---------- 3. Virtual environment ----------
 echo [3/5] Menyiapkan virtual environment (dino-env)...
+
+REM dino-env sisa percobaan lama bisa memakai Python yang salah.
+REM Periksa versinya, dan bangun ulang bila tidak cocok.
+if exist "dino-env\Scripts\python.exe" (
+    dino-env\Scripts\python.exe -c "import sys; sys.exit(0 if sys.version_info[:2] == (3,12) else 1)" >nul 2>nul
+    if errorlevel 1 (
+        echo dino-env lama tidak memakai Python 3.12. Membangun ulang...
+        rmdir /s /q dino-env
+    )
+)
+
 if exist "dino-env\Scripts\activate.bat" (
     echo Virtual environment sudah ada. Melewati pembuatan.
 ) else (
@@ -78,7 +93,7 @@ if errorlevel 1 (
     echo Error: dino-env tidak memakai Python 3.12:
     python --version
     echo.
-    echo Hapus foldernya lalu jalankan setup.bat lagi:
+    echo Ini tidak seharusnya terjadi. Hapus foldernya lalu ulangi:
     echo   rmdir /s /q dino-env
     exit /b 1
 )
@@ -140,4 +155,26 @@ REM =========================================================
 if defined PYLAUNCH exit /b 0
 %* -c "import sys; sys.exit(0 if sys.version_info[:2] == (3,12) else 1)" >nul 2>nul
 if not errorlevel 1 set "PYLAUNCH=%*"
+exit /b 0
+
+REM =========================================================
+REM  Subrutin: buat conda env py312 lalu pakai python.exe-nya
+REM  langsung, tanpa perlu "conda activate" dari pengguna.
+REM =========================================================
+:siapkan_conda
+where conda >nul 2>nul
+if errorlevel 1 exit /b 0
+
+set "CONDA_BASE="
+for /f "usebackq delims=" %%B in (`conda info --base`) do set "CONDA_BASE=%%B"
+if not defined CONDA_BASE exit /b 0
+
+set "PY312=%CONDA_BASE%\envs\py312\python.exe"
+if not exist "%PY312%" (
+    echo Python 3.12 belum ada. Membuat conda env "py312", mohon tunggu...
+    conda create -y -n py312 python=3.12
+)
+if not exist "%PY312%" exit /b 0
+
+call :coba "%PY312%"
 exit /b 0
